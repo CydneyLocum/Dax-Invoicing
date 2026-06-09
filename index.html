@@ -491,7 +491,7 @@ function updateTopbarActions(id) {
   if(id==='create') {
     el.innerHTML = `
       <button class="btn btn-ghost btn-sm" style="color:#fff" onclick="saveInvoice('draft')" title="Save draft"><i class="ti ti-device-floppy" style="font-size:20px"></i></button>
-      <button class="btn btn-ghost btn-sm" style="color:#fff" onclick="saveInvoice('sent')" title="Save & send"><i class="ti ti-send" style="font-size:20px"></i></button>
+      <button class="btn btn-ghost btn-sm" style="color:#fff" onclick="shareCurrentInvoice()" title="Share invoice"><i class="ti ti-share" style="font-size:20px"></i></button>
       <button class="btn btn-ghost btn-sm" style="color:#fff" onclick="downloadPDF()" title="Download PDF"><i class="ti ti-download" style="font-size:20px"></i></button>
     `;
   } else if(id==='clients') {
@@ -766,6 +766,7 @@ function openInvoice(id) {
   const s = getStatus(inv);
   document.getElementById('view-actions').innerHTML = `
     ${s!=='paid'?`<button class="btn btn-success btn-sm" onclick="markPaid('${id}');closeModal('view-modal')"><i class="ti ti-check"></i>Mark paid</button>`:''}
+    <button class="btn btn-primary btn-sm" onclick="shareInvoiceById('${id}')"><i class="ti ti-share"></i>Share</button>
     <button class="btn btn-secondary btn-sm" onclick="duplicateInvoice('${id}')"><i class="ti ti-copy"></i>Duplicate</button>
     <button class="btn btn-secondary btn-sm" onclick="editInvoice('${id}')"><i class="ti ti-edit"></i>Edit</button>
     <button class="btn btn-danger btn-sm" onclick="deleteInvoice('${id}')"><i class="ti ti-trash"></i>Delete</button>
@@ -799,6 +800,45 @@ function renderInvoiceHTML(inv) {
 
 function downloadPDFById(){downloadInvoiceAsPDF(DB.getInvoice(viewingInvoiceId));}
 function downloadPDF(){downloadInvoiceAsPDF(gatherInvoiceData());}
+
+// Share via native iOS/Android share sheet
+function shareCurrentInvoice() {
+  const inv = gatherInvoiceData();
+  if(currentEditId) inv.id = currentEditId;
+  shareInvoice(inv);
+}
+
+function shareInvoiceById(id) {
+  shareInvoice(DB.getInvoice(id));
+}
+
+function shareInvoice(inv) {
+  if(!inv) return;
+  const s = DB.settings();
+  const cn = clientName(inv.clientId, inv.clientName);
+
+  // Get client email — from saved client record first, then invoice field
+  let clientEmail = '';
+  if(inv.clientId) {
+    const c = DB.clients().find(x => x.id === inv.clientId);
+    if(c && c.email) clientEmail = c.email;
+  }
+  if(!clientEmail) clientEmail = inv.clientEmail||'';
+
+  const subject = `Invoice ${inv.number} from ${s.biz||'Dax Golding'}`;
+  const body = `Hi ${inv.clientName||cn},\n\nPlease find below the details for invoice ${inv.number}.\n\nInvoice number: ${inv.number}\nInvoice date: ${fmtDate(inv.date)}\nDue date: ${fmtDate(inv.due)}\nAmount due: ${fmt(inv.total)}\n\nPayment details:\n${inv.payment||s.bank||''}\n\n${inv.notes||'Thank you for your business.'}\n\nKind regards,\n${s.name||s.biz||'Dax Golding'}${s.phone?'\n'+s.phone:''}${s.email?'\n'+s.email:''}`;
+
+  // Use mailto so the client email address pre-populates in the email app
+  const mailto = 'mailto:' + encodeURIComponent(clientEmail) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  window.location.href = mailto;
+
+  // Mark as sent
+  if(inv.id) {
+    const saved = DB.getInvoice(inv.id);
+    if(saved && saved.status === 'draft') { saved.status = 'sent'; DB.saveInvoice(saved); }
+  }
+  showToast('Opening email app…');
+}
 
 function downloadInvoiceAsPDF(inv) {
   if(!inv) return;
